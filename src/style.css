@@ -1,10 +1,21 @@
+html,
 body {
   margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 canvas {
+  display: block;
   width: 100%;
   height: 100vh;
+  height: 100dvh;
+  touch-action: none;
 }
 
 #blocker {
@@ -13,13 +24,88 @@ canvas {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 16px;
   background: rgba(0, 0, 0, 0.45);
   color: #fff;
   font-family: system-ui, sans-serif;
+  line-height: 1.6;
+  text-align: center;
   cursor: pointer;
-  user-select: none;
+  touch-action: manipulation;
 }
 
-#blocker[hidden] {
+#blocker strong {
+  font-size: 1.4em;
+}
+
+#blocker[hidden],
+#touch-ui[hidden],
+#touch-ui .stick[hidden] {
   display: none;
+}
+
+#touch-ui {
+  position: fixed;
+  inset: 0;
+  touch-action: none;
+  font-family: system-ui, sans-serif;
+}
+
+#touch-ui .stick {
+  position: absolute;
+  left: -56px;
+  top: -56px;
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+}
+
+#touch-ui .knob {
+  position: absolute;
+  left: 32px;
+  top: 32px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+#touch-ui .touch-btn {
+  position: absolute;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
+  font: 600 14px system-ui, sans-serif;
+  touch-action: none;
+}
+
+#touch-ui .jump {
+  right: calc(24px + env(safe-area-inset-right));
+  bottom: calc(32px + env(safe-area-inset-bottom));
+  width: 76px;
+  height: 76px;
+}
+
+#touch-ui .run {
+  right: calc(112px + env(safe-area-inset-right));
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  width: 60px;
+  height: 60px;
+}
+
+#touch-ui .run[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.55);
+  color: #111;
+}
+
+#touch-ui .pause {
+  top: calc(16px + env(safe-area-inset-top));
+  right: calc(16px + env(safe-area-inset-right));
+  width: 44px;
+  height: 44px;
+  font-size: 12px;
 }

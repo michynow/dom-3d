@@ -2,7 +2,11 @@ import * as THREE from "three";
 import "./style.css";
 import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import hankaUrl from "./assets/hanka-3.glb?url";
+import { batchStaticMeshes } from "./batch";
+import { upgradeMaterials } from "./textures";
+import { TouchControls } from "./touch-controls";
 
 (() => {
   const canvas = document.querySelector(
@@ -11,14 +15,24 @@ import hankaUrl from "./assets/hanka-3.glb?url";
   const blocker = document.querySelector(
     "#blocker",
   ) as HTMLDivElement;
+  const isTouch = window.matchMedia("(pointer: coarse)").matches;
+  const dpr = window.devicePixelRatio;
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x9eb6c9);
+  scene.fog = new THREE.Fog(0x9eb6c9, 60, 220);
   const renderer = new THREE.WebGLRenderer({
     canvas,
-    antialias: true,
+    // High-DPI phones get little from MSAA but pay for it in fill rate.
+    antialias: !isTouch || dpr < 2,
+    powerPreference: "high-performance",
   });
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(dpr, isTouch ? 1.5 : 2));
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  // The scene is static: render the shadow map once after load.
+  renderer.shadowMap.autoUpdate = false;
   const camera = new THREE.PerspectiveCamera(
     75,
     window.innerWidth / window.innerHeight,
@@ -27,6 +41,10 @@ import hankaUrl from "./assets/hanka-3.glb?url";
   );
 
   const controls = new PointerLockControls(camera, document.body);
+  const touch = new TouchControls(camera);
+  const isActive = () => controls.isLocked || touch.enabled;
+  let ready = false;
+  let needsRender = true;
   const clock = new THREE.Clock();
   const raycaster = new THREE.Raycaster();
   const colliders: THREE.Object3D[] = [];
@@ -63,14 +81,33 @@ import hankaUrl from "./assets/hanka-3.glb?url";
 
   camera.position.set(0, eyeHeight, 5);
 
+  blocker.textContent = "Loading…";
   blocker.addEventListener("click", () => {
-    controls.lock();
+    if (!ready) return;
+    if (isTouch) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+      touch.enable();
+    } else {
+      controls.lock();
+    }
   });
-  controls.addEventListener("lock", () => {
+  const onLock = () => {
     blocker.hidden = true;
-  });
-  controls.addEventListener("unlock", () => {
+  };
+  const onUnlock = () => {
     blocker.hidden = false;
+    needsRender = true;
+  };
+  controls.addEventListener("lock", onLock);
+  controls.addEventListener("unlock", onUnlock);
+  touch.addEventListener("lock", onLock);
+  touch.addEventListener("unlock", onUnlock);
+
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    needsRender = true;
   });
 
   const onKey = (event: KeyboardEvent, pressed: boolean) => {
@@ -109,19 +146,45 @@ import hankaUrl from "./assets/hanka-3.glb?url";
     onKey(event, false);
   });
 
-  const axesHelper = new THREE.AxesHelper(10);
-  scene.add(axesHelper);
+  // Image-based lighting gives every PBR material plausible reflections.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 0.45;
+  pmrem.dispose();
 
   const hemisphereLight = new THREE.HemisphereLight(
     0xddeeff,
-    0x887766,
-    1,
+    0x6b5a48,
+    0.6,
   );
   scene.add(hemisphereLight);
 
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
-  directionalLight.position.set(8, 16, 10);
-  scene.add(directionalLight);
+  const sunDirection = new THREE.Vector3(8, 16, 10).normalize();
+  const directionalLight = new THREE.DirectionalLight(0xfff1dc, 2.6);
+  directionalLight.castShadow = true;
+  directionalLight.shadow.mapSize.setScalar(isTouch ? 1024 : 2048);
+  directionalLight.shadow.bias = -0.0004;
+  directionalLight.shadow.normalBias = 0.03;
+  scene.add(directionalLight, directionalLight.target);
+
+  const fitSunShadow = (box: THREE.Box3) => {
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const r = sphere.radius;
+    directionalLight.target.position.copy(sphere.center);
+    directionalLight.position
+      .copy(sphere.center)
+      .addScaledVector(sunDirection, r * 2);
+    const cam = directionalLight.shadow.camera;
+    cam.left = -r;
+    cam.right = r;
+    cam.top = r;
+    cam.bottom = -r;
+    cam.near = r * 0.5;
+    cam.far = r * 3.5;
+    cam.updateProjectionMatrix();
+    directionalLight.target.updateMatrixWorld();
+    directionalLight.updateMatrixWorld();
+  };
 
   const isMesh = (obj: THREE.Object3D): obj is THREE.Mesh =>
     (obj as THREE.Mesh).isMesh;
@@ -426,12 +489,33 @@ import hankaUrl from "./assets/hanka-3.glb?url";
   };
 
   const gltfLoader = new GLTFLoader();
-  gltfLoader.load(hankaUrl, (gltf) => {
+  gltfLoader.load(hankaUrl, async (gltf) => {
     const house = gltf.scene;
     scene.add(house);
     addHouseRoofs(house);
     fixFloorWallZFighting(house);
     collectColliders(house);
+    await upgradeMaterials(house, {
+      size: isTouch ? 256 : 512,
+      anisotropy: Math.min(
+        renderer.capabilities.getMaxAnisotropy(),
+        isTouch ? 4 : 8,
+      ),
+    });
+    const batches = batchStaticMeshes(house, scene);
+    batches.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.castShadow = !/^batch_(lawn|terrace_decking|kostka|concrete_paving)/.test(mesh.name);
+      mesh.receiveShadow = true;
+    });
+    house.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (mesh.isMesh && mesh.visible) {
+        mesh.castShadow = !(mesh.material as THREE.Material).transparent;
+        mesh.receiveShadow = true;
+      }
+    });
 
     const box = new THREE.Box3().setFromObject(house);
     const size = box.getSize(new THREE.Vector3());
@@ -444,6 +528,15 @@ import hankaUrl from "./assets/hanka-3.glb?url";
     camera.far = radius * 20;
     camera.updateProjectionMatrix();
     snapToFloor();
+
+    fitSunShadow(box);
+    renderer.shadowMap.needsUpdate = true;
+    renderer.compile(scene, camera);
+    ready = true;
+    needsRender = true;
+    blocker.innerHTML = isTouch
+      ? "<p><strong>Tap to enter</strong><br>Left thumb: move · Right thumb: look</p>"
+      : "<p><strong>Click to enter</strong><br>WASD: move · Mouse: look · Shift: run · Space: jump · Esc: exit</p>";
   });
 
   const planeGeometry = new THREE.PlaneGeometry(10, 10);
@@ -461,8 +554,14 @@ import hankaUrl from "./assets/hanka-3.glb?url";
     requestAnimationFrame(animate);
     const delta = Math.min(clock.getDelta(), 0.05);
 
-    if (controls.isLocked) {
-      const speed = movement.sprint ? sprintSpeed : walkSpeed;
+    const active = isActive();
+    if (active) {
+      if (touch.jump) {
+        movement.jump = true;
+        touch.jump = false;
+      }
+      const sprinting = movement.sprint || touch.sprint;
+      const speed = sprinting ? sprintSpeed : walkSpeed;
       front.setFromMatrixColumn(camera.matrix, 0);
       front.crossVectors(camera.up, front);
       front.y = 0;
@@ -476,9 +575,16 @@ import hankaUrl from "./assets/hanka-3.glb?url";
       if (movement.backward) moveDir.sub(front);
       if (movement.right) moveDir.add(right);
       if (movement.left) moveDir.sub(right);
+      // Analog stick: magnitude scales speed, so a light push walks slowly.
+      let throttle = 1;
+      if (touch.move.lengthSq() > 0) {
+        moveDir.addScaledVector(front, touch.move.y);
+        moveDir.addScaledVector(right, touch.move.x);
+        throttle = Math.min(touch.move.length(), 1);
+      }
 
       if (moveDir.lengthSq() > 0) {
-        moveDir.normalize().multiplyScalar(speed * delta);
+        moveDir.normalize().multiplyScalar(speed * throttle * delta);
         origin.copy(camera.position);
         if (moveDir.x !== 0) {
           axisDir.set(Math.sign(moveDir.x), 0, 0);
@@ -498,6 +604,9 @@ import hankaUrl from "./assets/hanka-3.glb?url";
       applyVertical(delta);
     }
 
+    // Idle behind the overlay: skip redundant frames to save battery.
+    if (!active && !needsRender) return;
+    needsRender = false;
     renderer.render(scene, camera);
   }
   animate();
