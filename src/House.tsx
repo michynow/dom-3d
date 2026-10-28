@@ -5,6 +5,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { MeshBVH, acceleratedRaycast } from "three-mesh-bvh";
 import { colliderOnly, foliage, zBias, type HouseMap } from "./maps";
+import { batchStaticMeshes } from "./batch";
 
 export type Collider = {
   mesh: THREE.Mesh;
@@ -191,7 +192,13 @@ export function House({
   const gltf = useLoader(GLTFLoader, map.url, undefined, onProgress);
   const collider = useMemo(() => {
     prepareMaterials(gltf.scene, map, gl.capabilities.getMaxAnisotropy());
-    return buildCollider(gltf.scene);
+    const result = buildCollider(gltf.scene);
+    // one draw call per shared material; originals stay (hidden) for lamps lookup
+    batchStaticMeshes(gltf.scene, gltf.scene).traverse((obj) => {
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+    });
+    return result;
   }, [gltf, map, gl]);
   const lamps = useMemo(() => findLamps(gltf.scene), [gltf]);
 

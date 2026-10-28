@@ -5,6 +5,7 @@ import { PointerLockControls } from "@react-three/drei";
 import type { PointerLockControls as PointerLockControlsImpl } from "three-stdlib";
 import type { Collider } from "./House";
 import type { HouseMap } from "./maps";
+import { TouchControls, isTouch } from "./touch-controls";
 
 const walkSpeed = 5;
 const sprintSpeed = 12;
@@ -66,6 +67,31 @@ export function Player({
   const raycaster = useRef(new THREE.Raycaster()).current;
   const keys = useRef({ ...initialKeys }).current;
   const state = useRef({ velocityY: 0, grounded: true }).current;
+  const touchRef = useRef<TouchControls | null>(null);
+
+  // phones: Enter starts the on-screen twin-stick controls instead of pointer lock
+  useEffect(() => {
+    if (!isTouch) return;
+    const touch = new TouchControls(camera);
+    touchRef.current = touch;
+    const enter = document.querySelector("#enter");
+    const start = () => {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+      touch.enable();
+    };
+    const lock = () => onLockChange(true);
+    const unlock = () => onLockChange(false);
+    enter?.addEventListener("click", start);
+    touch.addEventListener("lock", lock);
+    touch.addEventListener("unlock", unlock);
+    return () => {
+      enter?.removeEventListener("click", start);
+      touch.removeEventListener("lock", lock);
+      touch.removeEventListener("unlock", unlock);
+      touch.dispose();
+      touchRef.current = null;
+    };
+  }, [camera, onLockChange]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent, pressed: boolean) => {
@@ -211,9 +237,14 @@ export function Player({
   };
 
   useFrame((_, rawDelta) => {
-    if (!controlsRef.current?.isLocked) return;
+    const touch = touchRef.current;
+    if (!controlsRef.current?.isLocked && !touch?.enabled) return;
     const delta = Math.min(rawDelta, 0.05);
-    const speed = keys.sprint ? sprintSpeed : walkSpeed;
+    if (touch?.jump) {
+      keys.jump = true;
+      touch.jump = false;
+    }
+    const speed = keys.sprint || touch?.sprint ? sprintSpeed : walkSpeed;
     right.setFromMatrixColumn(camera.matrix, 0);
     front.crossVectors(camera.up, right);
     front.y = 0;
@@ -226,9 +257,16 @@ export function Player({
     if (keys.backward) moveDir.sub(front);
     if (keys.right) moveDir.add(right);
     if (keys.left) moveDir.sub(right);
+    // analog stick: magnitude scales speed, so a light push walks slowly
+    let throttle = 1;
+    if (touch && touch.move.lengthSq() > 0) {
+      moveDir.addScaledVector(front, touch.move.y);
+      moveDir.addScaledVector(right, touch.move.x);
+      throttle = Math.min(touch.move.length(), 1);
+    }
 
     if (moveDir.lengthSq() > 0) {
-      moveDir.normalize().multiplyScalar(speed * delta);
+      moveDir.normalize().multiplyScalar(speed * throttle * delta);
       origin.copy(camera.position);
       if (moveDir.x !== 0) {
         axisDir.set(Math.sign(moveDir.x), 0, 0);
@@ -249,6 +287,7 @@ export function Player({
     clampToBounds();
   });
 
+  if (isTouch) return null;
   return (
     <PointerLockControls
       ref={controlsRef}

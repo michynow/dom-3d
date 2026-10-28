@@ -14,6 +14,7 @@ import { House, forgetHouse, type Collider } from "./House";
 import { Player } from "./Player";
 import { Daylight } from "./Daylight";
 import { maps, type HouseMap } from "./maps";
+import { isTouch } from "./touch-controls";
 import { atMinute, daylight, formatMinute, sunPosition, sunTimes } from "./sun";
 
 const formatMB = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -89,9 +90,16 @@ export function App() {
     <>
       <Canvas
         shadows
-        dpr={[1, 2]}
+        // idle behind the menu: render only on changes, to save battery
+        frameloop={locked ? "always" : "demand"}
+        dpr={[1, isTouch ? 1.5 : 2]}
         camera={{ fov: 75, near: 0.1, far: 500, position: [0, 20, 40] }}
-        gl={{ antialias: true, toneMappingExposure: 0.8 }}
+        gl={{
+          // high-DPI phones gain little from MSAA but pay for it in fill rate
+          antialias: !isTouch || window.devicePixelRatio < 2,
+          powerPreference: "high-performance",
+          toneMappingExposure: 0.8,
+        }}
       >
         <Daylight date={date} />
         {map && (
@@ -228,8 +236,9 @@ export function App() {
           </fieldset>
 
           <p className="welcome__hint">
-            WASD — ruch. Mysz — rozglądanie. Shift — bieg. Spacja — skok. T —
-            pora dnia. Esc — menu.
+            {isTouch
+              ? "Lewy kciuk — ruch. Przeciąganie — rozglądanie. Przyciski: bieg, skok, pauza."
+              : "WASD — ruch. Mysz — rozglądanie. Shift — bieg. Spacja — skok. T — pora dnia. Esc — menu."}
           </p>
         </div>
       </div>
