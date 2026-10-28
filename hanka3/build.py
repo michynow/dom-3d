@@ -1142,33 +1142,32 @@ def fence():
         z = 0.50 + k * 0.135
         slab(slats, (gate[1] + 0.1, y1 - 0.28), (gate[1] + 0.1 + (gate[1] - gate[0]), y1 - 0.28), 0.04, g + z, g + z + 0.10)
         slab(slats, (wicket[0] + 0.04, y1 - 0.1), (wicket[0] + 0.04, y1 - 1.1), 0.04, g + z, g + z + 0.10)   # wicket swung in
-    # sides and back: 1.53 m 3D welded-mesh panels on posts with a 20 cm concrete underpinning
-    # back fence gets a 1.2 m gate to the forest: split that run around the opening
+    # sides and back: the same horizontal-slat panels as the front, so the whole fence reads as one
+    # height (thin mesh panels vanished with distance and looked like a fence shrinking to the back).
+    # 12 cm graphite posts every 2.5 m, 20 cm concrete underpinning, slats to 1.73 m above the ground.
     (bax, bay), (bbx, bby) = PLOT_POLY[3], PLOT_POLY[2]
     blen = math.hypot(bbx - bax, bby - bay)
-    t0, t1 = 0.5 - 0.6 / blen, 0.5 + 0.6 / blen
+    gt = 0.8                                     # forest gate towards the right end of the back fence
+    t0, t1 = gt - 0.6 / blen, gt + 0.6 / blen
     g0 = (bax + (bbx - bax) * t0, bay + (bby - bay) * t0)
     g1 = (bax + (bbx - bax) * t1, bay + (bby - bay) * t1)
     BACK_GATE.extend([g0, g1])
     for (ax, ay), (bx, by) in ((PLOT_POLY[3], PLOT_POLY[0]), (PLOT_POLY[2], PLOT_POLY[1]), (PLOT_POLY[3], g0), (g1, PLOT_POLY[2])):
         L = math.hypot(bx - ax, by - ay); n = max(1, round(L / 2.5))
         pts = [(ax + (bx - ax) * i / n, ay + (by - ay) * i / n) for i in range(n + 1)]
+        ux, uy = (bx - ax) / L, (by - ay) / L
         for px, py in pts:
             g = ground(px, py)
-            bm_box(posts, (px - 0.03, -(py + 0.03), g - 0.3), (px + 0.03, -(py - 0.03), g + H + 0.05))
+            bm_box(posts, (px - 0.06, -(py + 0.06), g - 0.3), (px + 0.06, -(py - 0.06), g + H + 0.07))
         for (pa, qa), (pb_, qb) in zip(pts, pts[1:]):
             ga, gb = ground(pa, qa), ground(pb_, qb)
-            slab(base, (pa, qa), (pb_, qb), 0.05, ga - 0.2, ga + 0.2, gb - 0.2, gb + 0.2)
-            slab(kol, (pa, qa), (pb_, qb), 0.1, ga, ga + 2.6, gb, gb + 2.6)
-            m = int(math.hypot(pb_ - pa, qb - qa) / 0.2)
-            for i in range(m + 1):
-                t = i / m
-                px, py = pa + (pb_ - pa) * t, qa + (qb - qa) * t
-                g = ga + (gb - ga) * t
-                cyl(wires, (px, -py, g + 0.22), (px, -py, g + H), 0.0025, 4)
-            for z in (0.26, 0.30, 0.78, 0.82, 1.24, 1.28, H - 0.04, 1.62):
-                cyl(wires, (pa, -qa, ga + z), (pb_, -qb, gb + z), 0.0025, 4)
-    # the forest gate leaf, swung open into the garden (mesh panel like the fence)
+            slab(base, (pa, qa), (pb_, qb), 0.06, ga - 0.2, ga + 0.2, gb - 0.2, gb + 0.2)
+            slab(kol, (pa, qa), (pb_, qb), 0.12, ga, ga + 2.6, gb, gb + 2.6)
+            sa, sb = (pa + ux * 0.06, qa + uy * 0.06), (pb_ - ux * 0.06, qb - uy * 0.06)
+            for k in range(9):
+                z = 0.30 + k * 0.16
+                slab(slats, sa, sb, 0.03, ga + z, ga + z + 0.11, gb + z, gb + z + 0.11)
+    # the forest gate leaf, swung open into the garden (same slats)
     (gx, gy), (hx, hy) = g0, g1
     nx_, ny_ = -(hy - gy), (hx - gx)             # inward normal (towards the house)
     L = math.hypot(nx_, ny_); nx_, ny_ = nx_ / L, ny_ / L
@@ -1176,16 +1175,14 @@ def fence():
         nx_, ny_ = -nx_, -ny_
     gz = ground(gx, gy)
     tip = (gx + nx_ * 1.15, gy + ny_ * 1.15)
-    for z in (0.15, 0.6, 1.05, 1.5, H - 0.02):
-        cyl(wires, (gx, -gy, gz + z), (tip[0], -tip[1], gz + z), 0.004, 4)
-    for k in range(7):
-        t = k / 6
-        px, py = gx + nx_ * 1.15 * t, gy + ny_ * 1.15 * t
-        cyl(wires, (px, -py, gz + 0.12), (px, -py, gz + H), 0.003 if 0 < k < 6 else 0.02, 4)
+    for k in range(9):
+        z = 0.30 + k * 0.16
+        slab(slats, (gx + nx_ * 0.05, gy + ny_ * 0.05), tip, 0.03, gz + z, gz + z + 0.11)
+    slab(posts, (gx, gy), (gx + nx_ * 0.05, gy + ny_ * 0.05), 0.06, gz + 0.25, gz + H + 0.02)
     finish("Ogrodzenie_podmurowka", base, "Beton_grafit")
     finish("Ogrodzenie_slupki", posts, "Ogrodzenie")
     finish("Ogrodzenie_sztachety", slats, "Ogrodzenie")
-    finish("Ogrodzenie_panele", wires, "Ogrodzenie")
+    wires.free()
     finish("Kolizja_ogrodzenie", kol, "Kolizja")
 
 GREEN_PINE = (0.30, 0.42, 0.24)
@@ -1377,7 +1374,7 @@ def garden():
     (ax, ay), (bx, by) = PLOT_POLY[3], PLOT_POLY[2]
     for k in range(24):   # young fir hedge along the back fence, clear of the forest gate
         t = (k + 0.5) / 24
-        if abs(t - 0.5) < 0.07:
+        if abs(t - 0.8) < 0.07:      # keep the forest gate clear
             continue
         card("fir_sap", ax + (bx - ax) * t, ay + (by - ay) * t + 0.9, random.uniform(2.0, 2.4))
     for v in (trunks, crowns, leaves, shrubs, grass):
