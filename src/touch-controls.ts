@@ -1,5 +1,8 @@
 import * as THREE from "three";
 
+export const isTouch =
+  typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+
 const LOOK_SPEED = 0.005;
 const STICK_RADIUS = 56;
 const HALF_PI = Math.PI / 2 - 0.01;
@@ -14,6 +17,8 @@ export class TouchControls extends EventTarget {
   readonly move = new THREE.Vector2();
   sprint = false;
   jump = false;
+  /** One-shot "use" (open / close the nearest door). */
+  use = false;
   enabled = false;
 
   private readonly root: HTMLDivElement;
@@ -39,6 +44,7 @@ export class TouchControls extends EventTarget {
       <button type="button" class="touch-btn pause" aria-label="Pause">❚❚</button>
       <button type="button" class="touch-btn run" aria-pressed="false">Run</button>
       <button type="button" class="touch-btn jump">Jump</button>
+      <button type="button" class="touch-btn use">Drzwi</button>
     `;
     document.body.appendChild(this.root);
     this.stick = this.root.querySelector(".stick") as HTMLDivElement;
@@ -55,6 +61,9 @@ export class TouchControls extends EventTarget {
     };
     press(".jump", () => {
       this.jump = true;
+    });
+    press(".use", () => {
+      this.use = true;
     });
     press(".run", () => {
       this.sprint = !this.sprint;
@@ -81,6 +90,11 @@ export class TouchControls extends EventTarget {
     this.releaseStick();
     this.lookId = null;
     this.dispatchEvent(new Event("unlock"));
+  }
+
+  dispose() {
+    this.disable();
+    this.root.remove();
   }
 
   private readonly onDown = (event: PointerEvent) => {

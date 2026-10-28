@@ -11,7 +11,15 @@ const toWorld = (mesh: THREE.Mesh) => {
   const source = mesh.geometry;
   const geometry = new THREE.BufferGeometry();
   for (const name of ATTRIBUTES) {
-    geometry.setAttribute(name, source.getAttribute(name).clone());
+    // component-wise copy: glTF attributes may be interleaved, and cloning those logs per call
+    const attr = source.getAttribute(name);
+    const array = new Float32Array(attr.count * attr.itemSize);
+    for (let i = 0; i < attr.count; i++) {
+      for (let k = 0; k < attr.itemSize; k++) {
+        array[i * attr.itemSize + k] = attr.getComponent(i, k);
+      }
+    }
+    geometry.setAttribute(name, new THREE.BufferAttribute(array, attr.itemSize));
   }
   const count = source.getAttribute("position").count;
   const index = source.index
@@ -40,7 +48,10 @@ export const batchStaticMeshes = (root: THREE.Object3D, parent: THREE.Object3D) 
   const groups = new Map<THREE.Material, THREE.Mesh[]>();
   root.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
-    if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+    if (!mesh.isMesh || !mesh.visible || Array.isArray(mesh.material)) return;
+    // vertex colours are not carried into the batch: leave those meshes alone
+    if (mesh.geometry.getAttribute("color")) return;
+    if (mesh.userData.noBatch) return;
     if (mesh.material.transparent) return;
     if (!ATTRIBUTES.every((name) => mesh.geometry.getAttribute(name))) return;
     const list = groups.get(mesh.material) ?? [];
