@@ -25,11 +25,17 @@ export const maps: HouseMap[] = [
   {
     id: "hanka",
     name: "Hanka 3",
-    meta: "Dom parterowy z wyposażeniem",
+    meta: "Parterowy dom na planie H, z sąsiedztwem i lasem",
     url: `${base}models/hanka.glb`,
-    fixMaterials: false,
+    thumb: `${base}models/hanka.jpg`,
+    fixMaterials: true,
+    // on the gravel road, at the wicket gate
+    spawn: [9.4, 33, 9.4, 15],
   },
 ];
+
+// invisible collision proxies (e.g. thin mesh fences rays would slip through)
+export const colliderOnly = "Kolizja";
 
 // foliage: no collisions, stays double-sided (cards / open cones)
 export const foliage = new Set([

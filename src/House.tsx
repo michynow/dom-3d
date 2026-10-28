@@ -4,7 +4,7 @@ import { useLoader, useThree } from "@react-three/fiber";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { MeshBVH, acceleratedRaycast } from "three-mesh-bvh";
-import { foliage, zBias, type HouseMap } from "./maps";
+import { colliderOnly, foliage, zBias, type HouseMap } from "./maps";
 
 export type Collider = {
   mesh: THREE.Mesh;
@@ -38,6 +38,8 @@ function prepareMaterials(
 ) {
   root.traverse((obj) => {
     if (!isMesh(obj)) return;
+    // still part of the merged collider, which ignores visibility
+    if (obj.name.startsWith(colliderOnly)) obj.visible = false;
     obj.castShadow = true;
     obj.receiveShadow = true;
     for (const material of materialsOf(obj)) {
