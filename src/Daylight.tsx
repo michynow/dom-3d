@@ -12,9 +12,10 @@ const white = new THREE.Color("#fff4e2");
 const shadowRadius = 25;
 const snap = 2;
 
-export function Daylight({ date }: { date: Date }) {
+export function Daylight({ date, north = 0 }: { date: Date; north?: number }) {
   const sun = sunPosition(date);
-  const dir = sunDirection(sun);
+  // azimuth in the model's frame: true bearing minus where the model's north points
+  const dir = sunDirection({ ...sun, azimuth: sun.azimuth - (north * Math.PI) / 180 });
   const height = Math.sin(sun.altitude);
   const day = daylight(sun.altitude);
 

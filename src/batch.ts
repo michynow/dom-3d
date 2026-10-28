@@ -49,6 +49,9 @@ export const batchStaticMeshes = (root: THREE.Object3D, parent: THREE.Object3D) 
   root.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
     if (!mesh.isMesh || !mesh.visible || Array.isArray(mesh.material)) return;
+    // vertex colours are not carried into the batch: leave those meshes alone
+    if (mesh.geometry.getAttribute("color")) return;
+    if (mesh.userData.noBatch) return;
     if (mesh.material.transparent) return;
     if (!ATTRIBUTES.every((name) => mesh.geometry.getAttribute(name))) return;
     const list = groups.get(mesh.material) ?? [];

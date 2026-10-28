@@ -9,6 +9,8 @@ import {
   type ReactNode,
 } from "react";
 import { Canvas } from "@react-three/fiber";
+import { EffectComposer, N8AO, ToneMapping } from "@react-three/postprocessing";
+import { ToneMappingMode } from "postprocessing";
 import type { PointerLockControls as PointerLockControlsImpl } from "three-stdlib";
 import { House, forgetHouse, type Collider } from "./House";
 import { Player } from "./Player";
@@ -101,7 +103,7 @@ export function App() {
           toneMappingExposure: 0.8,
         }}
       >
-        <Daylight date={date} />
+        <Daylight date={date} north={map?.north} />
         {map && (
           <ErrorBoundary key={map.id} onError={() => setFailed(true)}>
             <Suspense fallback={null}>
@@ -113,6 +115,13 @@ export function App() {
               />
             </Suspense>
           </ErrorBoundary>
+        )}
+        {/* contact shadows / ambient occlusion: the biggest realism gain; too heavy for phones */}
+        {!isTouch && (
+          <EffectComposer multisampling={4}>
+            <N8AO halfRes quality="medium" aoRadius={1.5} distanceFalloff={1} intensity={2.5} />
+            <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+          </EffectComposer>
         )}
         {map && collider && (
           <Player
@@ -237,8 +246,8 @@ export function App() {
 
           <p className="welcome__hint">
             {isTouch
-              ? "Lewy kciuk — ruch. Przeciąganie — rozglądanie. Przyciski: bieg, skok, pauza."
-              : "WASD — ruch. Mysz — rozglądanie. Shift — bieg. Spacja — skok. T — pora dnia. Esc — menu."}
+              ? "Lewy kciuk — ruch. Przeciąganie — rozglądanie. Przyciski: bieg, skok, drzwi, pauza."
+              : "WASD — ruch. Mysz — rozglądanie. Shift — bieg. Spacja — skok. E — drzwi. T — pora dnia. Esc — menu."}
           </p>
         </div>
       </div>

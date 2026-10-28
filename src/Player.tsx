@@ -13,7 +13,8 @@ const eyeHeight = 1.6;
 // wall probes look ~0.4 m ahead, so they must clear two risers (2 × 0.185 m on Wojtek's stairs)
 const stepHeight = 0.45;
 const stepUpSpeed = 12;
-const playerRadius = 0.35;
+// 0.9 m doorways leave 0.78 m between the frames: a slimmer body passes without pixel-perfect aiming
+const playerRadius = 0.28;
 const gravity = 22;
 const jumpSpeed = 7.5;
 const bodySampleCount = 5;
@@ -29,6 +30,8 @@ const moveDir = new THREE.Vector3();
 const origin = new THREE.Vector3();
 const probe = new THREE.Vector3();
 const axisDir = new THREE.Vector3();
+const sideDir = new THREE.Vector3();
+const nudge = new THREE.Vector3();
 const lateral = new THREE.Vector3();
 
 const keyMap: Record<string, keyof typeof initialKeys> = {
@@ -50,7 +53,16 @@ const initialKeys = {
   right: false,
   sprint: false,
   jump: false,
+  use: false,
 };
+
+const doorReach = 2.2;
+const doorSpeed = 1.6; // full swing in ~0.6 s
+const ease = (t: number) => t * t * (3 - 2 * t);
+const doorCenter = new THREE.Vector3();
+const toDoor = new THREE.Vector3();
+const lookDir = new THREE.Vector3();
+const doorBox = new THREE.Box3();
 
 export function Player({
   map,
@@ -100,6 +112,10 @@ export function Player({
         event.preventDefault();
         return;
       }
+      if (event.code === "KeyE") {
+        if (pressed && !event.repeat) keys.use = true;
+        return;
+      }
       const key = keyMap[event.code];
       if (key) keys[key] = pressed;
     };
@@ -113,12 +129,53 @@ export function Player({
     };
   }, [keys]);
 
+  // per-door swing state: t 0 = closed, 1 = open
+  const doors = useRef<{ obj: THREE.Object3D; angle: number; t: number; target: number }[]>([]);
+  useLayoutEffect(() => {
+    doors.current = collider.doors.map((obj) => ({
+      obj,
+      angle: obj.userData.openAngle as number,
+      t: 0,
+      target: 0,
+    }));
+  }, [collider]);
+
   const castRay = (from: THREE.Vector3, dir: THREE.Vector3, far: number) => {
     raycaster.set(from, dir);
     raycaster.near = 0;
     raycaster.far = far;
     raycaster.firstHitOnly = true;
-    return raycaster.intersectObject(collider.mesh, false)[0] ?? null;
+    const hit = raycaster.intersectObject(collider.mesh, false)[0] ?? null;
+    if (collider.doors.length === 0) return hit;
+    // door leaves move, so they are not in the static BVH; a few dozen plain meshes are cheap to test
+    const door = raycaster.intersectObjects(collider.doors, true)[0];
+    if (door && (!hit || door.distance < hit.distance)) {
+      // leaf normals are in object space; walls only need the "is it vertical" test downstream
+      door.face = door.face ?? null;
+      if (door.face) door.face.normal = door.face.normal.clone().transformDirection(door.object.matrixWorld);
+      return door;
+    }
+    return hit;
+  };
+
+  // toggle the closest door in front of the camera within reach
+  const useDoor = () => {
+    camera.getWorldDirection(lookDir);
+    lookDir.y = 0;
+    lookDir.normalize();
+    let best: (typeof doors.current)[number] | null = null;
+    let bestDist = doorReach;
+    for (const d of doors.current) {
+      doorBox.setFromObject(d.obj).getCenter(doorCenter);
+      toDoor.subVectors(doorCenter, camera.position);
+      toDoor.y = 0;
+      const dist = toDoor.length();
+      if (dist < bestDist && toDoor.normalize().dot(lookDir) > 0.3) {
+        best = d;
+        bestDist = dist;
+      }
+    }
+    if (best) best.target = best.target > 0.5 ? 0 : 1;
   };
 
   const hitsWall = (
@@ -149,6 +206,27 @@ export function Player({
   };
 
   const floorHit = (far: number) => castRay(camera.position, down, far);
+
+  // move along one axis; when a jamb blocks it, slide sideways into the opening if a small shift frees the way
+  const tryAxis = (axis: "x" | "z", amount: number) => {
+    if (amount === 0) return;
+    const side = axis === "x" ? "z" : "x";
+    axisDir.set(0, 0, 0)[axis] = Math.sign(amount);
+    origin.copy(camera.position);
+    if (!hitsWall(origin, axisDir, Math.abs(amount))) {
+      camera.position[axis] += amount;
+      return;
+    }
+    for (const off of [0.08, -0.08, 0.16, -0.16, 0.24, -0.24]) {
+      sideDir.set(0, 0, 0)[side] = Math.sign(off);
+      if (hitsWall(camera.position, sideDir, Math.abs(off))) continue;
+      nudge.copy(camera.position);
+      nudge[side] += off;
+      if (hitsWall(nudge, axisDir, Math.abs(amount))) continue;
+      camera.position[side] += Math.sign(off) * Math.min(Math.abs(off), Math.abs(amount));
+      return;
+    }
+  };
 
   useLayoutEffect(() => {
     const { bounds, groundY } = collider;
@@ -238,8 +316,18 @@ export function Player({
 
   useFrame((_, rawDelta) => {
     const touch = touchRef.current;
-    if (!controlsRef.current?.isLocked && !touch?.enabled) return;
     const delta = Math.min(rawDelta, 0.05);
+    for (const d of doors.current) {
+      if (d.t === d.target) continue;
+      d.t = THREE.MathUtils.clamp(d.t + Math.sign(d.target - d.t) * doorSpeed * delta, 0, 1);
+      d.obj.rotation.y = d.angle * ease(d.t);
+    }
+    if (!controlsRef.current?.isLocked && !touch?.enabled) return;
+    if (keys.use || touch?.use) {
+      keys.use = false;
+      if (touch) touch.use = false;
+      useDoor();
+    }
     if (touch?.jump) {
       keys.jump = true;
       touch.jump = false;
@@ -267,20 +355,8 @@ export function Player({
 
     if (moveDir.lengthSq() > 0) {
       moveDir.normalize().multiplyScalar(speed * throttle * delta);
-      origin.copy(camera.position);
-      if (moveDir.x !== 0) {
-        axisDir.set(Math.sign(moveDir.x), 0, 0);
-        if (!hitsWall(origin, axisDir, Math.abs(moveDir.x))) {
-          camera.position.x += moveDir.x;
-        }
-      }
-      origin.copy(camera.position);
-      if (moveDir.z !== 0) {
-        axisDir.set(0, 0, Math.sign(moveDir.z));
-        if (!hitsWall(origin, axisDir, Math.abs(moveDir.z))) {
-          camera.position.z += moveDir.z;
-        }
-      }
+      tryAxis("x", moveDir.x);
+      tryAxis("z", moveDir.z);
     }
 
     applyVertical(delta);

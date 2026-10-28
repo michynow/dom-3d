@@ -8,6 +8,8 @@ export type HouseMap = {
   fixMaterials: boolean;
   // [x, z, lookX, lookZ] in model space; default is in front of the bounds
   spawn?: [number, number, number, number];
+  // compass bearing (deg) of the model's -Z axis; the sun is turned to match
+  north?: number;
 };
 
 const base = import.meta.env.BASE_URL;
@@ -25,12 +27,15 @@ export const maps: HouseMap[] = [
   {
     id: "hanka",
     name: "Hanka 3",
-    meta: "Parterowy dom na planie H, z sąsiedztwem i lasem",
+    meta: "Parterowy dom na planie H, działka 32 × 76,7 m pod lasem",
     url: `${base}models/hanka.glb`,
     thumb: `${base}models/hanka.jpg`,
     fixMaterials: true,
-    // on the gravel road, at the wicket gate
-    spawn: [9.4, 33, 9.4, 15],
+    // on the dirt track, at the wicket gate
+    spawn: [9.4, 34, 9.4, 15],
+    // facing the front from the road, south is on the left: the house front faces east,
+    // so the model's -Z (towards the forest) points due west
+    north: 270,
   },
 ];
 

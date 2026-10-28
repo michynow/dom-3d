@@ -11,11 +11,15 @@ export type Collider = {
   mesh: THREE.Mesh;
   bounds: THREE.Box3;
   groundY: number;
+  // hinged door leaves (extras.openAngle from the Blender build): animated, ray-tested on their own
+  doors: THREE.Object3D[];
 };
 
 type Lamp = { x: number; z: number; top: number; radius: number };
 
 const lampMaterial = "Lampa_LED";
+// wall lamps and other fittings that glow after dusk (no extra lights: emissive only)
+const glowMaterial = "Swiatlo";
 const lampColor = "#ffd29a";
 
 const isMesh = (obj: THREE.Object3D): obj is THREE.Mesh =>
@@ -29,8 +33,16 @@ const texturesOf = (material: THREE.Material) =>
     (v): v is THREE.Texture => (v as THREE.Texture)?.isTexture,
   );
 
+// impostor cards ("Karta_*") are alpha-tested foliage too
+const isFoliageMaterial = (name: string) => foliage.has(name) || name.startsWith("Karta_");
+
 const isFoliage = (mesh: THREE.Mesh) =>
-  materialsOf(mesh).some((m) => foliage.has(m.name));
+  materialsOf(mesh).some((m) => isFoliageMaterial(m.name));
+
+const isDoor = (obj: THREE.Object3D) => obj.userData.openAngle !== undefined;
+
+const inDoor = (obj: THREE.Object3D | null): boolean =>
+  !!obj && (isDoor(obj) || inDoor(obj.parent));
 
 function prepareMaterials(
   root: THREE.Object3D,
@@ -49,7 +61,14 @@ function prepareMaterials(
       }
       if (!map.fixMaterials) continue;
       // closed boxes: back faces only z-fight with neighbours touching the same plane
-      if (!foliage.has(material.name)) material.side = THREE.FrontSide;
+      if (!isFoliageMaterial(material.name)) material.side = THREE.FrontSide;
+      if (material.name.startsWith("Karta_")) {
+        // alpha-tested, not blended: sorts correctly and casts shaped shadows
+        material.alphaTest = 0.5;
+        material.transparent = false;
+        material.depthWrite = true;
+        material.side = THREE.DoubleSide;
+      }
       const std = material as THREE.MeshStandardMaterial;
       // gray_* masks were authored as Non-Color in Blender; glTF forces sRGB on baseColor
       if (std.map?.name.startsWith("gray_")) {
@@ -83,7 +102,7 @@ function buildCollider(root: THREE.Object3D): Collider {
   let bestArea = 0;
   let groundY = 0;
   root.traverse((obj) => {
-    if (!isMesh(obj) || isFoliage(obj)) return;
+    if (!isMesh(obj) || isFoliage(obj) || inDoor(obj)) return;
     const src = obj.geometry;
     const part = new THREE.BufferGeometry();
     // copy component-wise: positions may be interleaved
@@ -127,7 +146,11 @@ function buildCollider(root: THREE.Object3D): Collider {
     new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }),
   );
   mesh.raycast = acceleratedRaycast;
-  return { mesh, bounds, groundY };
+  const doors: THREE.Object3D[] = [];
+  root.traverse((obj) => {
+    if (isDoor(obj)) doors.push(obj);
+  });
+  return { mesh, bounds, groundY, doors };
 }
 
 // garden bollards are one merged mesh: split it into posts by clustering vertices in plan
@@ -193,14 +216,42 @@ export function House({
   const collider = useMemo(() => {
     prepareMaterials(gltf.scene, map, gl.capabilities.getMaxAnisotropy());
     const result = buildCollider(gltf.scene);
+    for (const door of result.doors) {
+      door.traverse((obj) => {
+        obj.userData.noBatch = true;
+      });
+    }
     // one draw call per shared material; originals stay (hidden) for lamps lookup
     batchStaticMeshes(gltf.scene, gltf.scene).traverse((obj) => {
       obj.castShadow = true;
       obj.receiveShadow = true;
     });
+    // batching freezes matrices; doors keep moving
+    for (const door of result.doors) {
+      door.traverse((obj) => {
+        obj.matrixAutoUpdate = true;
+      });
+    }
     return result;
   }, [gltf, map, gl]);
   const lamps = useMemo(() => findLamps(gltf.scene), [gltf]);
+  const glows = useMemo(() => {
+    const found = new Set<THREE.MeshStandardMaterial>();
+    gltf.scene.traverse((obj) => {
+      if (!isMesh(obj)) return;
+      for (const m of materialsOf(obj)) {
+        if (m.name === glowMaterial) found.add(m as THREE.MeshStandardMaterial);
+      }
+    });
+    return [...found];
+  }, [gltf]);
+
+  useEffect(() => {
+    for (const m of glows) {
+      m.emissive.set(lampColor);
+      m.emissiveIntensity = 0.05 + 4 * night;
+    }
+  }, [glows, night]);
 
   useEffect(() => {
     onReady(collider);

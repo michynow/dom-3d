@@ -385,3 +385,11 @@ canvas {
   height: 44px;
   font-size: 12px;
 }
+
+#touch-ui .use {
+  right: calc(24px + env(safe-area-inset-right));
+  bottom: calc(124px + env(safe-area-inset-bottom));
+  width: 60px;
+  height: 60px;
+  font-size: 12px;
+}
